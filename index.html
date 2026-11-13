@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>To-Do Web Application</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <header>
+            <h1>TO-DO LIST</h1>
+            <p class="subtitle">Organize your tasks, schedules, and priorities</p>
+        </header>
+
+        <!-- Add Task Form -->
+        <form class="task-form" onsubmit="addTask(event)">
+            <input type="text" id="task-title" placeholder="What needs to be done?" required>
+            
+            <select id="task-list">
+                <option value="Personal">Personal</option>
+                <option value="Work">Work</option>
+                <option value="Study">Study</option>
+                <option value="Shopping">Shopping</option>
+            </select>
+
+            <input type="datetime-local" id="task-datetime">
+
+            <button type="submit" class="btn-primary">+ Add Task</button>
+        </form>
+
+        <!-- List Filter Tabs -->
+        <div class="filter-bar">
+            <button class="filter-btn active" onclick="filterList('All', this)">All Lists</button>
+            <button class="filter-btn" onclick="filterList('Personal', this)">Personal</button>
+            <button class="filter-btn" onclick="filterList('Work', this)">Work</button>
+            <button class="filter-btn" onclick="filterList('Study', this)">Study</button>
+            <button class="filter-btn" onclick="filterList('Shopping', this)">Shopping</button>
+        </div>
+
+        <!-- Task Counter -->
+        <div class="stats-bar">
+            <span id="task-count">0 tasks remaining</span>
+        </div>
+
+        <!-- Task Items Container -->
+        <div id="task-container" class="task-container"></div>
+    </div>
+
+    <!-- Edit Task Modal -->
+    <div id="edit-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2>Edit Task</h2>
+            <input type="hidden" id="edit-id">
+            
+            <label>Task Description</label>
+            <input type="text" id="edit-title" required>
+
+            <label>List Category</label>
+            <select id="edit-list">
+                <option value="Personal">Personal</option>
+                <option value="Work">Work</option>
+                <option value="Study">Study</option>
+                <option value="Shopping">Shopping</option>
+            </select>
+
+            <label>Date & Time</label>
+            <input type="datetime-local" id="edit-datetime">
+
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
+                <button type="button" class="btn-primary" onclick="saveEdit()">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let allTasks = [];
+        let currentFilter = 'All';
+
+        async function loadTasks() {
+            const res = await fetch('/api/tasks');
+            allTasks = await res.json();
+            renderTasks();
+        }
+
+        async function addTask(e) {
+            e.preventDefault();
+            const title = document.getElementById('task-title').value;
+            const list = document.getElementById('task-list').value;
+            const dateTime = document.getElementById('task-datetime').value;
+
+            const params = new URLSearchParams({ title, list, dateTime });
+            const res = await fetch(`/api/add?${params.toString()}`);
+            allTasks = await res.json();
+
+            document.getElementById('task-title').value = '';
+            document.getElementById('task-datetime').value = '';
+            renderTasks();
+        }
+
+        async function toggleTask(id) {
+            const res = await fetch(`/api/toggle?id=${id}`);
+            allTasks = await res.json();
+            renderTasks();
+        }
+
+        async function deleteTask(id) {
+            const res = await fetch(`/api/delete?id=${id}`);
+            allTasks = await res.json();
+            renderTasks();
+        }
+
+        function filterList(listName, btn) {
+            currentFilter = listName;
+            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            renderTasks();
+        }
+
+        function openEditModal(task) {
+            document.getElementById('edit-id').value = task.id;
+            document.getElementById('edit-title').value = task.title;
+            document.getElementById('edit-list').value = task.list;
+            document.getElementById('edit-datetime').value = task.dateTime;
+            document.getElementById('edit-modal').classList.remove('hidden');
+        }
+
+        function closeModal() {
+            document.getElementById('edit-modal').classList.add('hidden');
+        }
+
+        async function saveEdit() {
+            const id = document.getElementById('edit-id').value;
+            const title = document.getElementById('edit-title').value;
+            const list = document.getElementById('edit-list').value;
+            const dateTime = document.getElementById('edit-datetime').value;
+
+            if (!title.trim()) return;
+
+            const params = new URLSearchParams({ id, title, list, dateTime });
+            const res = await fetch(`/api/edit?${params.toString()}`);
+            allTasks = await res.json();
+            closeModal();
+            renderTasks();
+        }
+
+        function formatDateTime(dt) {
+            if (!dt) return 'No due date';
+            const date = new Date(dt);
+            return date.toLocaleString([], { 
+                month: 'short', day: 'numeric', year: 'numeric', 
+                hour: '2-digit', minute: '2-digit' 
+            });
+        }
+
+        function renderTasks() {
+            const container = document.getElementById('task-container');
+            container.innerHTML = '';
+
+            const filtered = currentFilter === 'All' 
+                ? allTasks 
+                : allTasks.filter(t => t.list === currentFilter);
+
+            const remaining = filtered.filter(t => !t.completed).length;
+            document.getElementById('task-count').innerText = `${remaining} task${remaining === 1 ? '' : 's'} remaining`;
+
+            if (filtered.length === 0) {
+                container.innerHTML = `<div class="empty-state">No tasks in this list yet. Add one above!</div>`;
+                return;
+            }
+
+            filtered.forEach(task => {
+                const card = document.createElement('div');
+                card.className = `task-card ${task.completed ? 'completed' : ''}`;
+
+                card.innerHTML = `
+                    <div class="task-left">
+                        <input type="checkbox" class="task-checkbox" ${task.completed ? 'checked' : ''} onchange="toggleTask(${task.id})">
+                        <div class="task-info">
+                            <span class="task-title">${escapeHtml(task.title)}</span>
+                            <div class="task-meta">
+                                <span class="badge badge-${task.list.toLowerCase()}">${task.list}</span>
+                                <span class="due-date">🕒 ${formatDateTime(task.dateTime)}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="task-actions">
+                        <button class="icon-btn edit-btn" title="Edit" onclick='openEditModal(${JSON.stringify(task)})'>✎</button>
+                        <button class="icon-btn delete-btn" title="Delete" onclick="deleteTask(${task.id})">✕</button>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.innerText = text;
+            return div.innerHTML;
+        }
+
+        window.onload = loadTasks;
+    </script>
+</body>
+</html>
